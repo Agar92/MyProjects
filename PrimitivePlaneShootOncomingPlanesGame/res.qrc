@@ -1,0 +1,12 @@
+<RCC>
+    <qresource prefix="/sounds">
+        <file>shot.mp3</file>
+        <file>river_flows_in_you.mp3</file>
+    </qresource>
+    <qresource prefix="/images">
+        <file>background.jpg</file>
+        <file>bullet.png</file>
+        <file>plane2.jpg</file>
+        <file>plane1.png</file>
+    </qresource>
+</RCC>
