@@ -1,0 +1,526 @@
+#ifndef BODYSYSTEMCPU_IMPL_H
+#define BODYSYSTEMCPU_IMPL_H
+
+#include "bodysystemcpu.h"
+
+#include <assert.h>
+#include <memory.h>
+#include <math.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <algorithm>
+#include <iostream>
+#include <ctime>
+#include <cstdlib>
+#include <chrono>
+#include <iostream>
+#include <unistd.h>
+#include <fstream>
+
+#include <omp.h>
+
+extern int numBodies;
+extern float CLUSTERSCALE;
+extern float HALF;
+extern float SOFTENING;
+extern float MASS;
+float CLPLUSSOFT=CLUSTERSCALE+SOFTENING;
+float P=0.0f;
+
+template <typename T>
+BodySystemCPU<T>::BodySystemCPU(int numBodies)
+    : m_numBodies(numBodies),
+      m_bInitialized(false),
+      m_force(0),
+      m_softeningSquared(.00125f),
+      m_damping(0.995f)
+{
+    m_pos = 0;
+    m_vel = 0;
+    m_aos = 0;
+//accel container
+    m_acc_container=0;
+//V*(t)=V(t)+a(t)*dt/2
+    m_vel_help=0;
+
+    _initialize(numBodies);
+}
+
+template <typename T>
+BodySystemCPU<T>::~BodySystemCPU()
+{
+    _finalize();
+    m_numBodies = 0;
+}
+
+template <typename T>
+void BodySystemCPU<T>::_initialize(int numBodies)
+{
+    assert(!m_bInitialized);
+
+    m_numBodies = numBodies;
+
+    m_pos    = new T[m_numBodies*4];
+    m_vel    = new T[m_numBodies*4];
+    //m_aos = new ParticleType[m_numBodies];
+    m_force  = new T[m_numBodies*3];
+    m_vel_help = new T[m_numBodies*3];
+    m_acc_container = new T[m_numBodies*3];
+
+    memset(m_pos,   0, m_numBodies*4*sizeof(T));
+    memset(m_vel,   0, m_numBodies*4*sizeof(T));
+    //memset(m_aos, 0, m_numBodies*sizeof(ParticleType));
+    memset(m_force, 0, m_numBodies*3*sizeof(T));
+    memset(m_vel_help, 0, m_numBodies*3*sizeof(T));
+    memset(m_acc_container, 0, m_numBodies*3*sizeof(T));
+
+    m_bInitialized = true;
+}
+
+template <typename T>
+void BodySystemCPU<T>::_finalize()
+{
+    assert(m_bInitialized);
+
+    delete [] m_pos;
+    delete [] m_vel;
+    delete [] m_force;
+    delete [] m_vel_help;
+
+    m_bInitialized = false;
+}
+
+template <typename T>
+void BodySystemCPU<T>::update(T deltaTime)
+{
+    assert(m_bInitialized);
+    _integrateNBodySystem(deltaTime);
+    //std::swap(m_currentRead, m_currentWrite);
+}
+
+template <typename T>
+void BodySystemCPU<T>::_update(ParticleType *p, T deltaTime)
+{
+    assert(m_bInitialized);
+    _integrateNParticles(p, deltaTime);
+}
+
+template <typename T>
+T *BodySystemCPU<T>::getArray(BodyArray array)
+{
+    assert(m_bInitialized);
+
+    T *data = 0;
+
+    switch (array)
+    {
+        default:
+        case BODYSYSTEM_POSITION:
+            data = m_pos;
+            break;
+
+        case BODYSYSTEM_VELOCITY:
+            data = m_vel;
+            break;
+    }
+
+    return data;
+}
+
+template <typename T>
+void BodySystemCPU<T>::setArray(BodyArray array, const T *data)
+{
+    assert(m_bInitialized);
+
+    T *target = 0;
+
+    switch (array)
+    {
+        default:
+        case BODYSYSTEM_POSITION:
+            target = m_pos;
+            break;
+
+        case BODYSYSTEM_VELOCITY:
+            target = m_vel;
+            break;
+    }
+
+    memcpy(target, data, m_numBodies*4*sizeof(T));
+}
+
+template<typename T>
+T sqrt_T(T x)
+{
+    return sqrt(x);
+}
+
+template<>
+float sqrt_T<float>(float x)
+{
+    return sqrtf(x);
+}
+template <typename T>
+void BodySystemCPU<T>::all_particle_vrml_import()
+{
+  std::printf
+    static int vrmlinit=0;
+    if(vrmlinit==0){
+    ofstream fout;
+    if(!fout.is_open()) fout.open("vrmlpositions");
+    std::cout<<"OUT"<<std::endl;
+    if(vrmlinit==0){fout<<"#VRML V2.0 utf8"<<endl;}
+    //else{pause();}
+    for(int i=0; i<m_numBodies;i++)
+    {
+        int index=4*i;
+        fout<<"Transform {\n"<<"translation "<<m_pos[index]/10<<" "<<m_pos[index+1]/10<<" "<<m_pos[index+2]/10<<"\n children [\n"<<"Shape {\n"<<"appearance Appearance {\n"<<"material Material {\n"<<"diffuseColor "<<0<<" "<<0<<" "<<1<<"}\n"<<"}\n"<<"geometry Sphere {\n"<<"radius "<<0.05<<"\n}"<<"\n}"<<"\n]"<<"\n}"<<"\n"<<endl;
+    }
+    vrmlinit++;
+    fout.close();
+    //system("freewrl /home/70-gaa/projects/grav_CPU/build-new-Desktop-Default/vrmlpositions");
+    system("freewrl /data/70-gaa/Desktop/Transfer. 70-gaa 17.05.17/projects/grav_CPU/work after /build particle_grav_dynamics/vrmlpositions");
+       }
+}
+
+template <typename T>
+void bodyBodyInteraction(T accel[3], T posMass0[4], T posMass1[4], T softeningSquared)
+{
+    T r[3];
+
+    // r_01  [3 FLOPS]
+    r[0] = posMass1[0] - posMass0[0];
+    if(r[0]>HALF) r[0]-=CLPLUSSOFT;
+    else if(r[0]<-HALF) r[0]+=CLPLUSSOFT;
+    else if(r[0]>0.) r[0]+=SOFTENING;
+    else if(r[0]<0.) r[0]-=SOFTENING;
+    r[1] = posMass1[1] - posMass0[1];
+    if(r[1]>HALF) r[1]-=CLPLUSSOFT;
+    else if(r[1]<-HALF) r[1]+=CLPLUSSOFT;
+    else if(r[1]>0.) r[0]+=SOFTENING;
+    else if(r[1]<0.)r[0]-=SOFTENING;
+    r[2] = posMass1[2] - posMass0[2];
+    if(r[2]>HALF) r[2]-=CLPLUSSOFT;
+    else if(r[2]<-HALF) r[2]+=CLPLUSSOFT;
+    else if(r[2]>0.) r[0]+=SOFTENING;
+    else if(r[2]<0.)r[0]-=SOFTENING;
+    // d^2 + e^2 [6 FLOPS]
+    T distSqr = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
+
+    // invDistCube =1/distSqr^(3/2)  [4 FLOPS (2 mul, 1 sqrt, 1 inv)]
+    T invDist = (T)1.0 / (T)sqrt((double)distSqr+SOFTENING);
+    T invDistCube =  invDist * invDist * invDist;
+
+    // s = m_j * invDistCube [1 FLOP]
+    T s = posMass1[3] * invDistCube;
+
+    // (m_1 * r_01) / (d^2 + e^2)^(3/2)  [6 FLOPS]
+    accel[0] += r[0] * s;
+    accel[1] += r[1] * s;
+    accel[2] += r[2] * s;
+}
+
+template <typename T>
+void BodySystemCPU<T>::_computeNBodyGravitation()
+{
+    /*
+    const int tileSize=16;
+    #pragma omp parallel for schedule(guided)
+    for (int ii = 0; ii < m_numBodies; ii+=tileSize)
+    {
+        float Fx[tileSize], Fy[tileSize], Fz[tileSize];
+        Fx[:]=Fy[:]=Fz[:]=0;
+	#pragma unroll(tilesize)
+	for(int j=0;j<m_numBodies;j++)
+	{
+	    #pragma vector aligned
+	        for(int i=ii;i<ii+tileSize;i++)
+		   {
+		      const float dx=1;
+		   }
+	}
+    }
+    
+    */
+
+    for (int i = 0; i < numBodies; i++)
+    {
+        int indexForce = 3*i;
+
+        T acc[3] = {0, 0, 0};
+
+        // We unroll this loop 4X for a small performance boost.
+        int j = 0;
+
+        while (j < numBodies)
+        {
+            bodyBodyInteraction<T>(acc, &m_pos[4*i], &m_pos[4*j], m_softeningSquared);
+            j++;
+            bodyBodyInteraction<T>(acc, &m_pos[4*i], &m_pos[4*j], m_softeningSquared);
+            j++;
+            bodyBodyInteraction<T>(acc, &m_pos[4*i], &m_pos[4*j], m_softeningSquared);
+            j++;
+            bodyBodyInteraction<T>(acc, &m_pos[4*i], &m_pos[4*j], m_softeningSquared);
+            j++;
+        }
+
+        m_force[indexForce  ] = acc[0];
+        m_acc_container[indexForce]=m_force[indexForce];
+        //std::cout<<m_acc_container[indexForce]<<std::endl;
+        m_force[indexForce+1] = acc[1];
+        m_acc_container[indexForce+1]=m_force[indexForce+1];
+        //std::cout<<m_acc_container[indexForce+1]<<std::endl;
+        m_force[indexForce+2] = acc[2];
+        m_acc_container[indexForce+2]=m_force[indexForce+2];
+        //std::cout<<m_acc_container[indexForce+2]<<std::endl;
+    }
+//former variant
+    /*for (int i = 0; i < m_numBodies; i++)
+    {
+        int indexForce = 3*i;
+
+        T acc[3] = {0, 0, 0};
+
+        // We unroll this loop 4X for a small performance boost.
+        int j = 0;
+
+        while (j < m_numBodies)
+        {
+            bodyBodyInteraction<T>(acc, &m_pos[4*i], &m_pos[4*j], m_softeningSquared);
+            j++;
+            bodyBodyInteraction<T>(acc, &m_pos[4*i], &m_pos[4*j], m_softeningSquared);
+            j++;
+            bodyBodyInteraction<T>(acc, &m_pos[4*i], &m_pos[4*j], m_softeningSquared);
+            j++;
+            bodyBodyInteraction<T>(acc, &m_pos[4*i], &m_pos[4*j], m_softeningSquared);
+            j++;
+        }
+
+        m_force[indexForce  ] = acc[0];
+        m_acc_container[indexForce]=m_force[indexForce];
+        std::cout<<m_acc_container[indexForce]<<std::endl;
+        m_force[indexForce+1] = acc[1];
+        m_acc_container[indexForce+1]=m_force[indexForce+1];
+        std::cout<<m_acc_container[indexForce+1]<<std::endl;
+        m_force[indexForce+2] = acc[2];
+        m_acc_container[indexForce+2]=m_force[indexForce+2];
+        std::cout<<m_acc_container[indexForce+2]<<std::endl;
+    }*/
+}
+
+template <typename T>
+void BodySystemCPU<T>::_integrateNBodySystem(T deltaTime)
+{
+    T kin_en=0;
+    static int count=0;
+    if(count==0)
+    {
+        for (int i = 0; i < numBodies; ++i)
+        {
+            int indexForce = 3*i;
+            //std::cout<<m_acc_container[indexForce]<<std::endl;
+            //std::cout<<m_acc_container[indexForce+1]<<std::endl;
+            //std::cout<<m_acc_container[indexForce+2]<<std::endl;
+        }
+    }
+
+#ifdef OPENMP
+    #pragma omp parallel for
+#endif
+
+    for (int i = 0; i < numBodies; ++i)
+    {
+        int index = 4*i;
+        int indexForce = 3*i;
+
+
+        T pos[3], vel[3], force[3];
+        pos[0] = m_pos[index+0];
+        pos[1] = m_pos[index+1];
+        pos[2] = m_pos[index+2];
+        T invMass = m_pos[index+3];
+
+        vel[0] = m_vel[index+0];
+        vel[1] = m_vel[index+1];
+        vel[2] = m_vel[index+2];
+
+        force[0] = m_force[indexForce+0];
+        force[1] = m_force[indexForce+1];
+        force[2] = m_force[indexForce+2];       
+        //V*(t)=V(t)+a(t)*dt/2
+        m_vel_help[indexForce]=vel[0]+m_acc_container[indexForce]*deltaTime/2;
+        m_vel_help[indexForce+1]=vel[1]+m_acc_container[indexForce+1]*deltaTime/2;
+        m_vel_help[indexForce+2]=vel[2]+m_acc_container[indexForce+2]*deltaTime/2;        
+        /*vel[0] += force[0] * deltaTime;
+        kin_en+=vel[0]*vel[0];
+        vel[1] += force[1] * deltaTime;
+        kin_en+=vel[1]*vel[1];
+        vel[2] += force[2] * deltaTime;
+        kin_en+=vel[2]*vel[2];*/
+
+        /*vel[0] *= m_damping;
+        vel[1] *= m_damping;
+        vel[2] *= m_damping;*/
+
+        //x(t+dt)=x(t)+V*(t)*dt
+        pos[0] += m_vel_help[indexForce] * deltaTime;
+        pos[1] += m_vel_help[indexForce+1] * deltaTime;
+        pos[2] += m_vel_help[indexForce+2] * deltaTime;
+        T calc_pos[3];
+        int n_1, n_2, n_3;
+
+        if(pos[0]>HALF) pos[0]-=CLUSTERSCALE;
+        if(pos[0]<-HALF) pos[0]+=CLUSTERSCALE;
+        if(pos[1]>HALF) pos[1]-=CLUSTERSCALE;
+        if(pos[1]<-HALF) pos[1]+=CLUSTERSCALE;
+        if(pos[2]>HALF) pos[2]-=CLUSTERSCALE;
+        if(pos[2]<-HALF) pos[2]+=CLUSTERSCALE;
+        /*calc_pos[0] = pos[0]+HALF;
+        n_1 = floor(calc_pos[0]/CLUSTERSCALE);
+        pos[0] = pos[0] - n_1*CLUSTERSCALE;
+        calc_pos[1] = pos[1]+HALF;
+        n_2 = floor(calc_pos[1]/CLUSTERSCALE);
+        pos[1] = pos[1] - n_2*CLUSTERSCALE;
+        calc_pos[2] = pos[2]+HALF;
+        n_3 = floor(calc_pos[2]/CLUSTERSCALE);
+        pos[2] = pos[2] - n_3*CLUSTERSCALE;*/
+
+        m_pos[index+0] = pos[0];
+        m_pos[index+1] = pos[1];
+        m_pos[index+2] = pos[2];
+
+        /*m_vel[index+0] = vel[0];
+        m_vel[index+1] = vel[1];
+        m_vel[index+2] = vel[2];*/
+    }
+    //all_particle_vrml_import();
+//a(t+dt)=F(x(t+dt))/mass
+    _computeNBodyGravitation();
+//V(t+dt)=V*(t)+a(t+dt)*dt/2
+    for (int i = 0; i < numBodies; ++i)
+    {
+        int index = 4*i;
+        int indexForce = 3*i;
+        m_vel[index+0] = m_vel_help[indexForce+0]+m_acc_container[indexForce+0]*deltaTime/2;
+        m_vel[index+1] = m_vel_help[indexForce+1]+m_acc_container[indexForce+1]*deltaTime/2;
+        m_vel[index+2] = m_vel_help[indexForce+2]+m_acc_container[indexForce+2]*deltaTime/2;
+    }
+    kin_en*=MASS;
+    count++;
+}
+
+template <typename T>
+double BodySystemCPU<T>::_CalcAccel(ParticleType *p, float deltatime)
+{
+	double potential=0;
+
+	const int tileSize=16;
+#pragma omp parallel for schedule(guided)
+    for (int ii = 0; ii < numBodies; ii+=tileSize)
+    {
+        float Fx[tileSize], Fy[tileSize], Fz[tileSize];
+        Fx[:]=Fy[:]=Fz[:]=0.0f;
+#pragma unroll(tileSize)
+	for(int j=0;j<numBodies;j++)
+	{
+#pragma vector aligned
+	  for(int i=ii;i<ii+tileSize;i++)
+	     {	    
+		const float dx=p->x[ii]-p->x[ii];					
+		const float dy=p->y[ii]-p->y[ii];			  		
+		const float dz=p->z[ii]-p->z[ii];
+		const float rr = 1.0f/sqrtf(dx*dx+dy*dy+dz*dz+SOFTENING);
+		potential+=-rr;
+		const float drPower32 =rr*rr*rr;
+		Fx[i-ii]+=dx*drPower32; 
+		Fy[i-ii]+=dy*drPower32; 
+		Fz[i-ii]+=dz*drPower32;
+	     }
+	}
+	p->vx[ii:tileSize]+=deltatime*Fx[0:tileSize];
+	p->vy[ii:tileSize]+=deltatime*Fy[0:tileSize];
+	p->vz[ii:tileSize]+=deltatime*Fz[0:tileSize];
+    }
+
+	/*for (int i = 0; i < numBodies; i++)
+        {
+		int indexForce=3*i;
+		float Fx=0, Fy=0, Fz=0;
+		for (int j = 0; j < numBodies; j++)
+        	{
+			float dx=p->x[j]-p->x[i];			
+			//if(dx>HALF) dx-=CLUSTERSCALE;
+			//else if(dx<-HALF) dx+=CLUSTERSCALE;
+
+			float dy=p->y[j]-p->y[i];			  
+			//if(dy>HALF) dy-=CLUSTERSCALE;
+			//else if(dy<-HALF) dy+=CLUSTERSCALE;
+
+			float dz=p->z[j]-p->z[i];			 
+			//if(dz>HALF) dz-=CLUSTERSCALE;
+			//else if(dz<-HALF) dz+=CLUSTERSCALE;
+
+			const float rr = 1.0f/sqrtf(dx*dx+dy*dy+dz*dz+SOFTENING);
+			//const float distance=1.0f/rr;
+			potential+=-rr;
+			const float drPower32 =rr*rr*rr;
+			Fx+=dx*drPower32; 
+			Fy+=dy*drPower32; 
+			Fz+=dz*drPower32;
+		}
+		m_force[indexForce]=Fx;
+		m_force[indexForce+1]=Fy;
+		m_force[indexForce+2]=Fz;
+		//std::cout<<"Fx="<<Fx<<",Fy="<<Fy<<",Fz="<<Fz<<std::endl;
+		//sleep(1);	
+	}*/
+	return potential;
+}
+
+template <typename T>
+void BodySystemCPU<T>::_integrateNParticles(ParticleType *p, float deltatime)
+{
+	float Vx=0;
+	float Vy=0;
+	float Vz=0;
+	static int count=0;
+	float Kimp=0;
+	float Kbc=0;
+	float kin_en=0;
+	if(count==0)
+	{
+		P=_CalcAccel(p, deltatime);
+	}
+	for(int i=0;i<numBodies;i++)
+	{
+		int indexForce=3*i;
+		//V*(t)=V(t)+a(t)*dt/2
+		m_vel_help[indexForce]=p->vx[i]+m_force[indexForce]*deltatime/2;
+		m_vel_help[indexForce+1]=p->vy[i]+m_force[indexForce+1]*deltatime/2;
+		m_vel_help[indexForce+2]=p->vz[i]+m_force[indexForce+2]*deltatime/2; 
+		kin_en+=p->vx[i]*p->vx[i]+p->vy[i]*p->vy[i]+p->vz[i]*p->vz[i];
+		p->x[i]+=m_vel_help[indexForce]*deltatime;
+		p->y[i]+=m_vel_help[indexForce+1]*deltatime;
+		p->z[i]+=m_vel_help[indexForce+2]*deltatime;
+		if(p->x[i]>HALF) p->x[i]-=CLUSTERSCALE;
+		if(p->x[i]<-HALF) p->x[i]+=CLUSTERSCALE;
+		if(p->y[i]>HALF) p->y[i]-=CLUSTERSCALE;
+		if(p->y[i]<-HALF) p->y[i]+=CLUSTERSCALE;
+		if(p->z[i]>HALF) p->z[i]-=CLUSTERSCALE;
+		if(p->z[i]<-HALF) p->z[i]+=CLUSTERSCALE;
+	}
+	float E=kin_en+P;
+	std::cout<<",E="<<E<<",kin_en="<<kin_en<<",P="<<P<<std::endl;
+	P=_CalcAccel(p, deltatime);
+	for(int i=0;i<numBodies;i++)
+	{
+	  //std::cout<<"SILE"<<std::endl;
+	  int indexForce=3*i;
+	  p->vx[i]=m_vel_help[indexForce]+m_force[indexForce]*deltatime/2;
+	  p->vy[i]=m_vel_help[indexForce+1]+m_force[indexForce+1]*deltatime/2;
+	  p->vz[i]=m_vel_help[indexForce+2]+m_force[indexForce+2]*deltatime/2;
+	} 
+	count++;
+}
+
+#endif // BODYSYSTEMCPU_IMPL_H
