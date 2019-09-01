@@ -7,4 +7,5 @@ SOURCES += \
         main.cpp
 
 HEADERS += \
-    File1.h
+    File1.h \
+    File2.h

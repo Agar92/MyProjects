@@ -1,5 +1,6 @@
 #include <iostream>
 #include "File1.h"
+#include "File2.h"
 
 using namespace std;
 
@@ -20,6 +21,12 @@ int main()
     PrintUintDecimalToOctal(942);
     PrintOctalToUint();
     findWords(" 323 sdfsd sdfsdfsdfsdf 23234 67567567657567fdgdfgd", 10);
+    cout<<"\n"<<isArmstrong(153)<<endl;
+    cout<<IsPrime(10)<<endl;
+    cout<<"GCD: "<<GCD(13,52)<<endl;
+    cout<<"LCM: "<<LCM(13,52)<<endl;
+    CopyFileToAFile("test.txt", "test1.txt");
+    exit(0);
     cout<<"\nPlease, type what to write to a file:"<<endl;
     string str;
     //works only from console (not from IDE) for English
