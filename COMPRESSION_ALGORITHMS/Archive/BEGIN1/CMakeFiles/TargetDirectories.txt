@@ -1,0 +1,3 @@
+/home/andrey/Desktop/Small_Projects/WORK/BEGIN1/CMakeFiles/rebuild_cache.dir
+/home/andrey/Desktop/Small_Projects/WORK/BEGIN1/CMakeFiles/Test.dir
+/home/andrey/Desktop/Small_Projects/WORK/BEGIN1/CMakeFiles/edit_cache.dir

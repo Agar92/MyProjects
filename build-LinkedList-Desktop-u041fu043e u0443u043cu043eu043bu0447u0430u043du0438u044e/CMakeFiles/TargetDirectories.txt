@@ -1,0 +1,3 @@
+/home/andrey/Desktop/GIT/MyProjects/build-LinkedList-Desktop-u041fu043e u0443u043cu043eu043bu0447u0430u043du0438u044e/CMakeFiles/rebuild_cache.dir
+/home/andrey/Desktop/GIT/MyProjects/build-LinkedList-Desktop-u041fu043e u0443u043cu043eu043bu0447u0430u043du0438u044e/CMakeFiles/Test.dir
+/home/andrey/Desktop/GIT/MyProjects/build-LinkedList-Desktop-u041fu043e u0443u043cu043eu043bu0447u0430u043du0438u044e/CMakeFiles/edit_cache.dir

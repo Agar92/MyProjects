@@ -1,0 +1,36 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/andrey/Desktop/GIT/MyProjects/LinkedList/BinaryTree.h
+climits
+-
+
+/home/andrey/Desktop/GIT/MyProjects/LinkedList/LinkedList.h
+cmath
+-
+iostream
+-
+chrono
+-
+cassert
+-
+
+/home/andrey/Desktop/GIT/MyProjects/LinkedList/main.cpp
+cmath
+-
+iostream
+-
+chrono
+-
+cassert
+-
+LinkedList.h
+/home/andrey/Desktop/GIT/MyProjects/LinkedList/LinkedList.h
+BinaryTree.h
+/home/andrey/Desktop/GIT/MyProjects/LinkedList/BinaryTree.h
+

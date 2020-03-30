@@ -1,0 +1,3 @@
+/home/andrey/Desktop/GIT/MyProjects/TrigonometricFunctionsRealization/CMakeFiles/rebuild_cache.dir
+/home/andrey/Desktop/GIT/MyProjects/TrigonometricFunctionsRealization/CMakeFiles/Test.dir
+/home/andrey/Desktop/GIT/MyProjects/TrigonometricFunctionsRealization/CMakeFiles/edit_cache.dir

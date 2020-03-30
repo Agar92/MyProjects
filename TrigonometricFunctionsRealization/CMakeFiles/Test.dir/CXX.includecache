@@ -1,0 +1,16 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/andrey/Desktop/GIT/MyProjects/TrigonometricFunctionsRealization/main.cpp
+iostream
+-
+cmath
+-
+unistd.h
+/home/andrey/Desktop/GIT/MyProjects/TrigonometricFunctionsRealization/unistd.h
+
